@@ -1,6 +1,6 @@
 # 🚂 LiDAR-Based Railway Infrastructure Segmentation (Non-AI Approach)
 
-![Current Segmentation Result](results/railway_000033_PCL.png)
+![Current Segmentation Result](results/current_results.png)
 
 ## 🎯 Project Overview
 The objective of this project is to **segment and isolate critical railway infrastructure components** (tracks, catenaries, poles) from raw 3D LiDAR point clouds. 

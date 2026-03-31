@@ -1,6 +1,6 @@
 # 🚂 LiDAR-Based Railway Infrastructure Segmentation (Non-AI Approach)
 
-![Current Segmentation Result](results/current_results.png)
+![Current Segmentation Result](results/current_results_30_03_26.png)
 
 ## 🎯 Project Overview
 The objective of this project is to **segment and isolate critical railway infrastructure components** (tracks, catenaries, poles) from raw 3D LiDAR point clouds. 
@@ -8,6 +8,12 @@ The objective of this project is to **segment and isolate critical railway infra
 This project specifically explores a **Rule-Based / Heuristic approach**, deliberately avoiding Deep Learning (AI). This ensures a lightweight, explainable, and computationally efficient solution suitable for edge computing or real-time monitoring systems.
 
 ---
+
+## 💻 Hardware Configuration 
+**Laptop:** Lenovo IdeaPad S145-15API 
+- **RAM:** 8 GB  
+- **Processor:** AMD® Athlon 300u with Radeon Vega Mobile Gfx × 4 
+- **Graphics:** AMD® Radeon Vega 3 Graphics
 
 ## 📊 Dataset Source
 The data used in this project is sourced from the French Open Data platform:
@@ -27,19 +33,24 @@ The development of this pipeline followed a two-step engineering approach:
 
 ## 🏗️ Technical Achievements [Work in Progress 🚧]
 
-### 1. Slope-Aware Ground Extraction
-The track bed (ballast/rails) is isolated using a **RANSAC Plane Model**. Unlike static filters, this model calculates height **relative to the plane**, allowing the algorithm to follow the natural incline/slope of the railway line.
+### Poles Detection Accuracy
+It is possible to obtain an accurate segmentation of poles, catenaries, and tracks by using the **RANSAC** algorithm combined with cluster extraction. 
 
-### 2. Infrastructure Classification (Poles & Catenaries)
-The algorithm uses a multi-step deterministic logic to differentiate between diverse structural types:
-* **Standard Pole Detection (e.g., Pole 235): [Validated]** Successful isolation of vertical supports using height-to-width ratios and ground-anchoring verification ($z_{min} < 0.8m$ relative to the slope).
-* **Complex Catenary Portals (e.g., Structures 112 & 172): [In Progress]** Refinement of the segmentation for heavy support structures. Current focus is on robustly separating the catenary arms (consoles) from the main poles.
-* **Deterministic Filtering:** Architecture where objects are classified by geometric properties (**Linearity via PCA**, verticality, and relative height) rather than opaque neural network weights.
+![First results](results/railway_000033_PCL.png)
 
-### 3. Real-Time Slope Analysis
-The system automatically segments the ground into "Low" and "High" zones to calculate:
-* **Z-Mean Values:** Average absolute altitude of the ballast at both ends of the segment.
-* **Slope Percentage:** Estimated gradient of the track, essential for normalizing height measurements across the entire line.
+Other segmentation techniques were explored, such as **Region Growing** or **Cylindrical Segmentation**, but they proved unsuitable for this specific use case (lattice structures). The current results are impressive considering they are obtained without AI. However, a simple RANSAC approach lacks object dimensions, leading to the next phase: **separating poles from catenaries and measuring them.**
+
+### Data Attribute Analysis
+Analysis via **CloudCompare** revealed that the LiDAR point cloud provides rich metadata: `Classification`, `Intensity`, `GPSTime`, `ReturnNumber`, `NumberOfReturns`, etc. 
+
+The `NumberOfReturns` attribute specifically shows that railway lines, poles, catenaries, and tracks often share similar return signatures. This information is crucial because it makes decent semantic segmentation theoretically possible without AI. 
+
+![ReturnsOfNumbers based Segmentation](results/current_results_29_03_26.png)
+
+This highlights that LiDAR attributes are a path that should not be overlooked. However, as cables and poles remained merged in initial tests, a more advanced geometric approach was required.
+
+### The Shift to Normal Estimation
+An approach that was not initially considered is **Normal Estimation**. By calculating surface normals, we can determine the spatial orientation of objects. This is a key turning point for this project.
 
 ---
 
@@ -50,30 +61,33 @@ A core challenge of this project was the **Empirical Optimization** of the algor
 
 #### 1. Statistical Outlier Removal (SOR)
 Eliminates sensor noise ("laser dust") to prevent isolated noise points from acting as "bridges" between distinct objects.
-* **Empirical Choice:** `nb_neighbors=50`, `std_ratio=1.0`.
+* **Empirical Choice:** `leaf_size=0.1`.
 
-#### 2. Ground Plane Extraction (RANSAC)
-Isolation of the track bed.
-* **Empirical Threshold:** `distance_threshold=0.3m`.
+#### 2. Normal Estimation 
+Computes the local surface orientation for every point.
+* **Empirical Threshold:** `KSearch=20` (Nearest Neighbors).
 
-#### 3. Spatial Clustering (Euclidean)
-Groups remaining points into individual entities (Poles, Catenaries, Vegetation).
-* **Empirical Tuning:** `ClusterTolerance=0.2m`, `MinSize=40`.
+#### 3. Normal Filtering
+The normal is a unit vector $(n_x, n_y, n_z)$ perpendicular to the object surface at a given point. 
+* The **$n_z$** value indicates horizontal (~0) or vertical (~1) orientation. 
+* To isolate **poles**, we filter and keep points where the **$n_z$** value is **under 0.15**.
 
-#### 4. Relative Height Analysis
-Every point's height $H$ is calculated using the point-to-plane distance formula:
-$$d = \frac{|ax + by + cz + d|}{\sqrt{a^2 + b^2 + c^2}}$$
-This ensures that Pole **235** is detected with the same logic as Structures **112/172**, regardless of absolute altitude.
+#### 4. Spatial Clustering (Euclidean)
+Groups the remaining points into individual entities.
+* **Empirical Tuning:** `ClusterTolerance=0.4m`, `MinSize=100`.
+
+#### 5. Relative Height Analysis
+Clusters with a height over **4.0m** are classified as poles, ensuring reliable detection and dimensioning.
 
 ---
 
 ## 🛠️ Tech Stack
-* **Language:** C++ 17 (Core) / Python (Prototyping)
+* **Languages:** C++ 17 (Core Engine) / Python (R&D Prototyping)
 * **Libraries:** [PCL (Point Cloud Library)](https://pointclouds.org/), [Open3D](http://www.open3d.org/)
-* **Data Handling:** CloudCompare (for .laz to .pcd conversion & Global Shift)
+* **Analysis Tools:** CloudCompare (Format conversion .laz to .pcd & Global Shift handling)
 * **Build System:** CMake
 
 ## 🌍 Impact & Use Cases
 * **Railway Maintenance:** Automated clearance checks and vegetation risk management.
 * **Digital Twins:** Rapid generation of classified 3D models for BIM integration.
-* **Explainability:** 100% transparent classification logic for safety-critical infrastructure.
+* **Explainability:** 100% transparent classification logic, crucial for safety-critical infrastructure.

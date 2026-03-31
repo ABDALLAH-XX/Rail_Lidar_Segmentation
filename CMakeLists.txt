@@ -8,7 +8,7 @@ endif()
 # find dependencies
 find_package(PCL 1.12 REQUIRED COMPONENTS common io visualization)
 find_package(PCL 1.12 REQUIRED COMPONENTS common io filters)
-find_package(PCL 1.12 REQUIRED COMPONENTS common io visualization features keypoints)
+find_package(PCL 1.12 REQUIRED COMPONENTS common io visualization search features keypoints)
 find_package(Eigen3 REQUIRED)
 
 # Inclure les répertoires de PCL

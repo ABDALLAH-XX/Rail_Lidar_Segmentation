@@ -1,236 +1,161 @@
+#define PCL_NO_PRECOMPILE
 #include <iostream>
 #include <vector>
+#include <iomanip>
 #include <pcl/io/pcd_io.h>
 #include <pcl/common/common.h>
+#include <pcl/common/pca.h> // AJOUTÉ POUR LE PCA
+#include <pcl/filters/passthrough.h> // AJOUTÉ
 #include <pcl/point_types.h>
+#include <Eigen/Dense>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/extract_indices.h>
+#include <pcl/features/normal_3d.h>
 #include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/segmentation/region_growing.h>
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/segmentation/impl/sac_segmentation.hpp>
 #include <pcl/segmentation/impl/extract_clusters.hpp>
+#include <pcl/common/impl/angles.hpp>
 #include <pcl/visualization/pcl_visualizer.h>
 
+// --- Creation d'un type de point personnalisé pour visualiser les différents champs du nuage de points ---
+struct EIGEN_ALIGN16 PointSNCF {
+   PCL_ADD_POINT4D; // Fournit x, y, z et les fonctions de calcul (getVector4fMap)
+   PCL_ADD_RGB; // Fournit r, g, b et les fonctions de calcul (getRGBVector4fMap)
+   
+   float Classification;
+   uint8_t padding1[12];
+   float Intensity;
+   uint8_t padding2[12];
+   float GpsTime;
+   uint8_t padding3[12];
+   float ReturnNumber;
+   uint8_t padding4[12];
+   float NumberOfReturns;
+   uint8_t padding5[12];
+   float UserData;
+   uint8_t padding6[12];
+   float PointSourceId;
+   uint8_t padding7[12];
+   uint8_t padding8[12]; // Correspond au dernier SIZE 12 du header
+   
+   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+};
+
+// L'enregistrement doit mapper tes noms de champs PCD aux variables de la struct
+POINT_CLOUD_REGISTER_POINT_STRUCT(PointSNCF,
+    (float, x, x)
+    (float, y, y)
+    (float, z, z)
+    (float, rgb, rgb)
+    (float, Classification, Classification)
+    (float, Intensity, Intensity)
+    (float, GpsTime, GpsTime)
+    (float, ReturnNumber, ReturnNumber)
+    (float, NumberOfReturns, NumberOfReturns)
+    (float, UserData, UserData)
+    (float, PointSourceId, PointSourceId)
+    
+)
+
+
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <path_to_pcd_centered>" << std::endl;
-        return -1;
-    }
+    if (argc < 2) return -1;
+    pcl::PointCloud<PointSNCF>::Ptr cloud(new pcl::PointCloud<PointSNCF>);
+    pcl::io::loadPCDFile<PointSNCF>(argv[1], *cloud);
 
-    // --- 1. CHARGEMENT ---
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::io::loadPCDFile<pcl::PointXYZ>(argv[1], *cloud);
-    std::cout << "Points charges: " << cloud->size() << std::endl;
 
-    // --- 2. VOXEL DOWN SAMPLE ---
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_down(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::VoxelGrid<pcl::PointXYZ> vg;
+    // 1. DOWNSAMPLING
+    pcl::PointCloud<PointSNCF>::Ptr cloud_down(new pcl::PointCloud<PointSNCF>);
+    pcl::VoxelGrid<PointSNCF> vg;
     vg.setInputCloud(cloud);
-    vg.setLeafSize(0.2f, 0.2f, 0.2f);
+    vg.setLeafSize(0.12f, 0.12f, 0.12f);
     vg.filter(*cloud_down);
 
-    // --- 3. SOR ---
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_sor(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+    // 2. FILTRAGE STATISTIQUE
+    pcl::PointCloud<PointSNCF>::Ptr cloud_filtered(new pcl::PointCloud<PointSNCF>);
+    pcl::StatisticalOutlierRemoval<PointSNCF> sor;
     sor.setInputCloud(cloud_down);
-    sor.setMeanK(40);
-    sor.setStddevMulThresh(3.0);
-    sor.filter(*cloud_sor);
+    sor.setMeanK(50);
+    sor.setStddevMulThresh(1.0);
+    sor.filter(*cloud_filtered);
 
-    // --- 4. RANSAC Sol ---
-    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
-    pcl::PointIndices::Ptr inliers_ground(new pcl::PointIndices);
-    pcl::SACSegmentation<pcl::PointXYZ> seg;
-    seg.setOptimizeCoefficients(true);
-    seg.setModelType(pcl::SACMODEL_PLANE);
-    seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(0.5);
-    seg.setInputCloud(cloud_sor);
-    seg.segment(*inliers_ground, *coefficients);
+    // 4. CALCUL DES NORMALES
+    pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+    pcl::NormalEstimation<PointSNCF, pcl::Normal> ne;
+    ne.setInputCloud(cloud_filtered);
+    pcl::search::KdTree<PointSNCF>::Ptr tree(new pcl::search::KdTree<PointSNCF>());
+    ne.setSearchMethod(tree);
+    ne.setKSearch(20); 
+    ne.compute(*normals);
 
-    float a = coefficients->values[0], b = coefficients->values[1],
-          c = coefficients->values[2], d = coefficients->values[3];
-
-    // Extraction sol
-    pcl::ExtractIndices<pcl::PointXYZ> extract;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    extract.setInputCloud(cloud_sor);
-    extract.setIndices(inliers_ground);
-    extract.setNegative(false);
-    extract.filter(*ground_cloud);
-
-    // Extraction objets
-    pcl::PointCloud<pcl::PointXYZ>::Ptr object_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    extract.setNegative(true);
-    extract.filter(*object_cloud);
-
-    // --- 5. FILTRAGE VERTICAL ---
-    pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_objects(new pcl::PointCloud<pcl::PointXYZ>);
-    for (const auto& pt : object_cloud->points) {
-        float dist = std::abs(a * pt.x + b * pt.y + c * pt.z + d);
-        if (dist > 0.2)
-            filtered_objects->points.push_back(pt);
-    }
-    filtered_objects->width = filtered_objects->points.size();
-    filtered_objects->height = 1;
-
-    // --- 6. CLUSTERING ---
-    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
-    tree->setInputCloud(filtered_objects);
-
-    std::vector<pcl::PointIndices> cluster_indices;
-    pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
-    ec.setClusterTolerance(0.2);
-    ec.setMinClusterSize(50);
-    ec.setMaxClusterSize(500000);
-    ec.setSearchMethod(tree);
-    ec.setInputCloud(filtered_objects);
-    ec.extract(cluster_indices);
-
-    std::cout << "Nombre de clusters : " << cluster_indices.size() << std::endl;
-
-    // --- 7. DIAGNOSTIC CLUSTERS CIBLES ---
-    // Clusters identifiés visuellement comme poteaux potentiels
-    std::vector<int> clusters_cibles = {16, 22, 442, 469, 527};
-    std::cout << "\n=== DIAGNOSTIC CLUSTERS CIBLES ===" << std::endl;
-
-    for (size_t i = 0; i < cluster_indices.size(); ++i) {
-        // Vérifier si ce cluster est dans la liste cible
-        bool est_cible = false;
-        for (int cible : clusters_cibles)
-            if ((int)i == cible) { est_cible = true; break; }
-        if (!est_cible) continue;
-
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cluster(new pcl::PointCloud<pcl::PointXYZ>);
-        for (const auto& idx : cluster_indices[i].indices)
-            cluster->points.push_back((*filtered_objects)[idx]);
-
-        float mean_dist = 0;
-        for (const auto& pt : cluster->points)
-            mean_dist += std::abs(a*pt.x + b*pt.y + c*pt.z + d);
-        mean_dist /= cluster->size();
-
-        pcl::PointXYZ min_pt, max_pt;
-        pcl::getMinMax3D(*cluster, min_pt, max_pt);
-        float dx = max_pt.x - min_pt.x;
-        float dy = max_pt.y - min_pt.y;
-        float dz = max_pt.z - min_pt.z;
-        float length_xy = std::sqrt(dx*dx + dy*dy);
-
-        std::cout << "C" << i
-                  << " | pts=" << cluster->size()
-                  << " | h=" << mean_dist
-                  << " | dz=" << dz
-                  << " | xy=" << length_xy << std::endl;
+    // 4. FILTRAGE PAR NORMALES (Métal vertical)
+    pcl::PointCloud<PointSNCF>::Ptr cloud_poteaux(new pcl::PointCloud<PointSNCF>);
+    for (size_t i = 0; i < cloud_filtered->size(); ++i) {
+        if (std::abs((*normals)[i].normal_z) < 0.15f) { 
+            cloud_poteaux->push_back((*cloud_filtered)[i]);
+        }
     }
 
-    // --- 8. AFFICHAGE NUAGE COMPLET + POTEAUX ET CABLES ---
-    pcl::visualization::PCLVisualizer::Ptr viewer(
-        new pcl::visualization::PCLVisualizer("SNCF - Nuage Complets + Poteaux et Cables"));
+    // 5. CLUSTERING
+    std::vector<pcl::PointIndices> clusters;
+    pcl::EuclideanClusterExtraction<PointSNCF> ec;
+    ec.setClusterTolerance(0.4); 
+    ec.setMinClusterSize(100);
+    ec.setInputCloud(cloud_poteaux);
+    ec.extract(clusters);
+
+    // 6. VISUALISATION ET CALCULS
+    pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("Detection SNCF"));
     viewer->setBackgroundColor(0, 0, 0);
 
-    // Sol en rouge
-    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>
-        red_handler(ground_cloud, 255, 0, 0);
-    viewer->addPointCloud<pcl::PointXYZ>(ground_cloud, red_handler, "ground");
+    int count = 0;
+    for (const auto& indices : clusters) {
+        Eigen::Vector4f min_p, max_p;
+        pcl::getMinMax3D(*cloud_poteaux, indices, min_p, max_p);
+        
+        float dim_x = max_p[0] - min_p[0];
+        float dim_y = max_p[1] - min_p[1];
+        float h = max_p[2] - min_p[2];
 
-    // Tous les clusters en gris avec labels
-    for (size_t i = 0; i < cluster_indices.size(); ++i) {
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cluster(new pcl::PointCloud<pcl::PointXYZ>);
-        for (const auto& idx : cluster_indices[i].indices)
-            cluster->points.push_back((*filtered_objects)[idx]);
+        // Filtre de hauteur pour les poteaux
+        if (h > 4.0f) {
+            count++;
+            
+            // Coordonnées du centre de la base
+            float centerX = (min_p[0] + max_p[0]) / 2.0f;
+            float centerY = (min_p[1] + max_p[1]) / 2.0f;
+            float baseZ = min_p[2];
 
-        std::string name = "all_" + std::to_string(i);
-        pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>
-            grey(cluster, 80, 80, 80);
-        viewer->addPointCloud<pcl::PointXYZ>(cluster, grey, name);
-        viewer->setPointCloudRenderingProperties(
-            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, name);
+            // Coloration du cluster
+            pcl::PointCloud<PointSNCF>::Ptr cluster_cloud(new pcl::PointCloud<PointSNCF>);
+            pcl::copyPointCloud(*cloud_poteaux, indices, *cluster_cloud);
+            for(auto& p : cluster_cloud->points) { p.r=255; p.g=255; p.b=0; }
+            
+            viewer->addPointCloud<PointSNCF>(cluster_cloud, "poteau_" + std::to_string(count));
 
-        // Label au-dessus du cluster
-        pcl::PointXYZ min_pt, max_pt;
-        pcl::getMinMax3D(*cluster, min_pt, max_pt);
-        pcl::PointXYZ center;
-        center.x = (min_pt.x + max_pt.x) / 2;
-        center.y = (min_pt.y + max_pt.y) / 2;
-        center.z = max_pt.z + 0.5;
-        viewer->addText3D(std::to_string(i), center, 0.3, 1.0, 1.0, 0.0,
-                          "label_" + std::to_string(i));
-    }
+            // Préparation du texte (ID + Dimensions + Coordonnées)
+            std::stringstream ss;
+            ss << "POTEAU " << count << "\n"
+               << "Dim: " << std::fixed << std::setprecision(2) << dim_x << "x" << dim_y << "x" << h << "m\n"
+               << "Pos: [" << centerX << ", " << centerY << ", " << baseZ << "]";
 
-    // Détection poteaux et câbles
-    int nb_poteaux = 0, nb_cables = 0;
-
-    for (size_t i = 0; i < cluster_indices.size(); ++i) {
-
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cluster(new pcl::PointCloud<pcl::PointXYZ>);
-        for (const auto& idx : cluster_indices[i].indices)
-            cluster->points.push_back((*filtered_objects)[idx]);
-
-        float mean_dist = 0;
-        for (const auto& pt : cluster->points)
-            mean_dist += std::abs(a*pt.x + b*pt.y + c*pt.z + d);
-        mean_dist /= cluster->size();
-
-        pcl::PointXYZ min_pt, max_pt;
-        pcl::getMinMax3D(*cluster, min_pt, max_pt);
-        float dx = max_pt.x - min_pt.x;
-        float dy = max_pt.y - min_pt.y;
-        float dz = max_pt.z - min_pt.z;
-        float length_xy = std::sqrt(dx*dx + dy*dy);
-
-        // --- CRITERE POTEAU ---
-        // Forme primaire : vertical, fin, hauteur suffisante
-        if (dz > 3.0
-            && length_xy < 1.5
-            && cluster->size() >= 50
-            && cluster->size() < 500
-            && mean_dist > 1.0 && mean_dist < 15.0) {
-
-            std::string name = "poteau_" + std::to_string(i);
-            pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>
-                white(cluster, 255, 255, 255);
-            viewer->addPointCloud<pcl::PointXYZ>(cluster, white, name);
-            viewer->setPointCloudRenderingProperties(
-                pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 4, name);
-            nb_poteaux++;
-            std::cout << "Poteau " << nb_poteaux
-                      << " | C" << i
-                      << " | pts=" << cluster->size()
-                      << " | h=" << mean_dist
-                      << " | dz=" << dz
-                      << " | xy=" << length_xy << std::endl;
-        }
-
-        // --- CRITERE CABLE ---
-        // Forme primaire : long horizontalement, peu vertical
-        else if (mean_dist > 4.5 && mean_dist < 8.0
-                 && length_xy > 4.0
-                 && dz < 4.0
-                 && cluster->size() < 5000) {
-
-            std::string name = "cable_" + std::to_string(i);
-            pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>
-                cyan(cluster, 0, 255, 255);
-            viewer->addPointCloud<pcl::PointXYZ>(cluster, cyan, name);
-            viewer->setPointCloudRenderingProperties(
-                pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 4, name);
-            nb_cables++;
-            std::cout << "Cable " << nb_cables
-                      << " | C" << i
-                      << " | pts=" << cluster->size()
-                      << " | h=" << mean_dist
-                      << " | dz=" << dz
-                      << " | xy=" << length_xy << std::endl;
+            // Affichage du texte au sommet
+            pcl::PointXYZ text_pos(centerX, centerY, max_p[2] + 0.8f);
+            viewer->addText3D(ss.str(), text_pos, 0.25, 1.0, 1.0, 1.0, "info_" + std::to_string(count));
+            
+            // Log console
+            std::cout << "--- Poteau " << count << " ---" << std::endl;
+            std::cout << "Dimensions: " << dim_x << "m x " << dim_y << "m x " << h << "m" << std::endl;
+            std::cout << "Position Base (X,Y,Z): " << centerX << ", " << centerY << ", " << baseZ << std::endl;
         }
     }
 
-    std::cout << "\nBilan : " << nb_poteaux << " poteau(x), "
-              << nb_cables << " cable(s) detectes" << std::endl;
+    viewer->addPointCloud<PointSNCF>(cloud_filtered, "background");
+    viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_OPACITY, 0.3, "background");
 
-    viewer->resetCamera();
-    while (!viewer->wasStopped()) { viewer->spin(); }
-
+    viewer->spin();
     return 0;
 }

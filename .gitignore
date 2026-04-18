@@ -5,4 +5,6 @@ src/point_cloud_exploration.py
 data/*laz
 data/*pcd
 
+.vscode
+
 build/*

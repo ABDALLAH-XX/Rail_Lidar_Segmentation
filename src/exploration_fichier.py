@@ -4,12 +4,15 @@ import numpy as np
 import scipy.linalg as la
 from scipy import ndimage
 import matplotlib.pyplot as plt
+import time
 
 # ==========================================
 # 2. CHARGEMENT ET SOL (RANSAC)
 # ==========================================
 
-las = laspy.read("railway_000033.laz")
+las = laspy.read("data/railway_000033.laz")
+print(f"Fichier chargé début du traitement...")
+start_time = time.time()
 pcd = o3d.geometry.PointCloud()
 pcd.points = o3d.utility.Vector3dVector(np.vstack((las.x, las.y, las.z)).T)
 pcd = pcd.voxel_down_sample(voxel_size=0.2) 
@@ -49,6 +52,11 @@ print(f"Le nuage contient {max_label + 1} objets distincts")
 colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
 colors[labels < 0] = 0  # Les points considérés comme "bruit" seront en noir
 filtered_objects.colors = o3d.utility.Vector3dVector(colors[:, :3])
+
+end_time = time.time()
+
+elapsed_time = end_time - start_time
+print(f"Traitement terminé. Temps: {elapsed_time:.2f}s")
 
 # 4. Affichage final
 visualizer = o3d.visualization.Visualizer()

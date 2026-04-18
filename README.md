@@ -1,6 +1,6 @@
 # 🚂 LiDAR-Based Railway Infrastructure Segmentation (Non-AI Approach)
 
-![Current Segmentation Result](results/current_results_30_03_26.png)
+![Current Segmentation Result](results/railway_000033_18_04_26.png)
 
 ## 🎯 Project Overview
 The objective of this project is to **segment and isolate critical railway infrastructure components** (tracks, catenaries, poles) from raw 3D LiDAR point clouds. 
@@ -33,7 +33,7 @@ The development of this pipeline followed a two-step engineering approach:
 
 ## 🏗️ Technical Achievements [Work in Progress 🚧]
 
-### Poles Detection Accuracy
+### Poles Detection 
 It is possible to obtain an accurate segmentation of poles, catenaries, and tracks by using the **RANSAC** algorithm combined with cluster extraction. 
 
 ![First results](results/railway_000033_PCL.png)
@@ -54,30 +54,45 @@ An approach that was not initially considered is **Normal Estimation**. By calcu
 
 ---
 
-## ⚙️ Methodology & Empirical Tuning
+### ⚙️ Methodology & Empirical Tuning
 A core challenge of this project was the **Empirical Optimization** of the algorithm. All parameters were determined through iterative testing to find the optimal balance between noise reduction and feature preservation.
+
+### Current Work
+The poles were detected succesfully on two point clouds. The process is shown on the following section.
 
 ### 🛠️ The Processing Pipeline
 
-#### 1. Statistical Outlier Removal (SOR)
+#### 1. Voxel Downsampling
+Reduces the point cloud density while keeping relevant informations.
+* **Empirical Choice:** `leafSize=0.12`.
+
+#### 2. Statistical Outlier Removal (SOR)
 Eliminates sensor noise ("laser dust") to prevent isolated noise points from acting as "bridges" between distinct objects.
-* **Empirical Choice:** `leaf_size=0.1`.
+* **Empirical Choice:** `meanK=50`, `StddevMulThresh=1.0`.
 
-#### 2. Normal Estimation 
-Computes the local surface orientation for every point.
-* **Empirical Threshold:** `KSearch=20` (Nearest Neighbors).
 
-#### 3. Normal Filtering
+
+#### 3. NumberOfReturns Filtering 
+The NumbersOfReturns field of the point cloud has shown that the blue values, which include poles, catenaries and rails can be used to segment the point cloud. Their values are close to 0. 
+* **Empirical Threshold:** `1.0` .
+
+#### 4. Normal Filtering
 The normal is a unit vector $(n_x, n_y, n_z)$ perpendicular to the object surface at a given point. 
 * The **$n_z$** value indicates horizontal (~0) or vertical (~1) orientation. 
-* To isolate **poles**, we filter and keep points where the **$n_z$** value is **under 0.15**.
+* To isolate **poles**, we filter and keep points where the **$n_z$** value is **under 0.10**.
 
 #### 4. Spatial Clustering (Euclidean)
 Groups the remaining points into individual entities.
-* **Empirical Tuning:** `ClusterTolerance=0.4m`, `MinSize=100`.
+* **Empirical Tuning:** `ClusterTolerance=0.2m`, `MinSize=250`.
 
 #### 5. Relative Height Analysis
-Clusters with a height over **4.0m** are classified as poles, ensuring reliable detection and dimensioning.
+RANSAC algorithm is used to detect the poles.
+* **Empirical Choice:** `ModelType=SACMODEL_LINE`, `DistanceThreshold=0.5m`.
+The poles detection is based on several criterias:  
+
+* The height must be over **5.0m** and under **15.5m**.
+* The verticality computed must be over **0.99**.
+* The y dimension our the pole must be under **0.85m**.
 
 ---
 

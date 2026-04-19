@@ -1,7 +1,5 @@
 # 🚂 LiDAR-Based Railway Infrastructure Segmentation (Non-AI Approach)
 
-![Current Segmentation Result](results/railway_000033_18_04_26.png)
-
 ## 🎯 Project Overview
 The objective of this project is to **segment and isolate critical railway infrastructure components** (tracks, catenaries, poles) from raw 3D LiDAR point clouds. 
 
@@ -57,8 +55,10 @@ An approach that was not initially considered is **Normal Estimation**. By calcu
 ### ⚙️ Methodology & Empirical Tuning
 A core challenge of this project was the **Empirical Optimization** of the algorithm. All parameters were determined through iterative testing to find the optimal balance between noise reduction and feature preservation.
 
-### Current Work
+## 🚧 Current Work
 A code optimizaton has allowed the program to gain over 20s during execution. This has been possible by performing a NumberOfReturns filtering followed by a Voxel Downsamling in order to reduce the amount of points from 9 456 254 to 1 379 745. 
+
+![Current Segmentation Result](results/railway_000033_18_04_26.png)
 
 ### 🛠️ The Processing Pipeline
 

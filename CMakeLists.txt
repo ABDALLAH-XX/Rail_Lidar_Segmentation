@@ -23,8 +23,12 @@ endif()
 # Aide PCL à trouver Boost sur Ubuntu
 find_package(Boost REQUIRED COMPONENTS system filesystem thread)
 
+find_package(PDAL REQUIRED)
+
 # B. EIGEN
 find_package(Eigen3 REQUIRED)
+
+
 
 set(PCL_DIR "/usr/lib/x86_64-linux-gnu/cmake/pcl")
 find_package(PCL REQUIRED COMPONENTS common io visualization filters search features segmentation)
@@ -36,6 +40,7 @@ include_directories(${Boost_INCLUDE_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 include_directories(
     ${PCL_INCLUDE_DIRS}
+    ${PDAL_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
@@ -50,5 +55,5 @@ add_executable (railway_segmentation src/railway_segmentation.cpp)
 
 add_executable (test_segmentation src/test.cpp)
 
-target_link_libraries (railway_segmentation ${PCL_LIBRARIES}  Eigen3::Eigen)
-target_link_libraries (test_segmentation ${PCL_LIBRARIES}  Eigen3::Eigen)
+target_link_libraries (railway_segmentation ${PCL_LIBRARIES} ${PDAL_LIBRARIES} Eigen3::Eigen)
+target_link_libraries (test_segmentation ${PCL_LIBRARIES} ${PDAL_LIBRARIES} Eigen3::Eigen)

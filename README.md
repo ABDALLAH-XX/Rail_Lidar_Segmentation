@@ -59,11 +59,11 @@ An approach that was not initially considered is **Normal Estimation**. By calcu
 A core challenge of this project was the **Empirical Optimization** of the algorithm. All parameters were determined through iterative testing to find the optimal balance between noise reduction and feature preservation.
 
 ## 🚧 Current Work
-Since the beginning of this project the program went from 47s to 15s during running time. This has been possible by performing a NumberOfReturns filtering followed by a Voxel Downsamling in order to reduce the amount of points from 9 456 254 to 1 379 745. 
+Since the beginning of this project the program went from 47s to 15s during running time. This has been possible by performing a NumberOfReturns filtering followed by a Voxel Downsamling in order to reduce the amount of points from 9 456 254 to 1 379 745. This approach is done on a .pcd which is heavy (over 1Gb). A .laz to PCL conversion using PDAL has been used to allows the user to runs the program on the raw file format (.laz).
 
 ### 🛠️ The Processing Pipeline
 
-#### 1. NumberOfReturns Filtering 
+#### 1. PDAL to PCL conversion & NumberOfReturns Filtering 
 The NumbersOfReturns field of the point cloud has shown that the blue values, which include poles, catenaries and rails can be used to segment the point cloud. Their values are close to 0. 
 * **Empirical Threshold:** `1.0` .
 
@@ -88,6 +88,32 @@ The poles detection is based on several criterias:
 * The height must be over **5.0m** and under **15.5m**.
 * The verticality computed must be over **0.99**.
 * The y dimension our the pole must be under **0.85m**.
+
+
+#### 6. Results & Benchmarks
+
+The algorithm was tested on **six LAZ point clouds** (over. 1GB / over 8M points each) to establish a baseline before parallelization.
+
+##### Performance Data (Sequential Baseline)
+
+| Point Cloud ID | Poles Detected | Accuracy | Processing Time | Status |
+| :--- | :---: | :---: | :---: | :--- |
+| `railway_000033` | **4 / 4** | 100% | 24.60s | ✅ Success |
+| `railway_000034` | **2 / 3** | 66.7% | 24.97s | ⚠️ Missed 1 |
+| `railway_000039` | **2 / 3** | 66.7% | 25.13s | ⚠️ Missed 1 |
+| `railway_000041` | **4 / 4** | 100% | 24.50s | ✅ Success |
+| `railway_000043` | **3 / 3** | 100% | 24.15s | ✅ Success |
+| `railway_000046` | **2 / 3** | 66.7% | 21.24s | ⚠️ Missed 1 |
+
+**Average Processing Time:** ~24.1s  
+**Overall Recall Rate:** 17 / 20 poles (85%)
+
+---
+
+##### Technical Observations
+* **Consistency:** The processing speed is highly stable around **24-25 seconds**. 
+* **Bottlenecks:** File `000046` was significantly faster (21.24s), likely due to lower point density or fewer vertical candidates during the Euclidean Clustering stage.
+* **Accuracy:** Missed poles in files 34, 39, and 46 are likely due to signal noise or proximity to catenary structures, requiring further refinement of the `ClusterTolerance`.
 
 ---
 

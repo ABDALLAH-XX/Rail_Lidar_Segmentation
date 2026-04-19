@@ -1,5 +1,8 @@
 # 🚂 LiDAR-Based Railway Infrastructure Segmentation (Non-AI Approach)
 
+## Current Results
+![Current Segmentation Result](results/railway_000033_18_04_26.png)
+
 ## 🎯 Project Overview
 The objective of this project is to **segment and isolate critical railway infrastructure components** (tracks, catenaries, poles) from raw 3D LiDAR point clouds. 
 
@@ -32,7 +35,7 @@ The development of this pipeline followed a two-step engineering approach:
 ## 🏗️ Technical Achievements [Work in Progress 🚧]
 
 ### Poles Detection 
-It is possible to obtain an accurate segmentation of poles, catenaries, and tracks by using the **RANSAC** algorithm combined with cluster extraction. 
+This figure shows that it is possible to obtain an accurate segmentation of poles, catenaries, and tracks by using the **RANSAC** algorithm combined with cluster extraction. 
 
 ![First results](results/railway_000033_PCL.png)
 
@@ -56,9 +59,7 @@ An approach that was not initially considered is **Normal Estimation**. By calcu
 A core challenge of this project was the **Empirical Optimization** of the algorithm. All parameters were determined through iterative testing to find the optimal balance between noise reduction and feature preservation.
 
 ## 🚧 Current Work
-A code optimizaton has allowed the program to gain over 20s during execution. This has been possible by performing a NumberOfReturns filtering followed by a Voxel Downsamling in order to reduce the amount of points from 9 456 254 to 1 379 745. 
-
-![Current Segmentation Result](results/railway_000033_18_04_26.png)
+Since the beginning of this project the program went from 47s to 15s during running time. This has been possible by performing a NumberOfReturns filtering followed by a Voxel Downsamling in order to reduce the amount of points from 9 456 254 to 1 379 745. 
 
 ### 🛠️ The Processing Pipeline
 

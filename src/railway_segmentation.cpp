@@ -5,7 +5,6 @@
 #include <chrono> 
 #include <pcl/io/pcd_io.h>
 #include <pcl/common/common.h>
-//#include <pcl/common/pca.h> 
 #include <pcl/point_types.h>
 #include <Eigen/Dense>
 #include <pcl/filters/voxel_grid.h>
@@ -13,7 +12,6 @@
 #include <pcl/filters/extract_indices.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/segmentation/sac_segmentation.h>
-//#include <pcl/segmentation/region_growing.h>
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/segmentation/impl/sac_segmentation.hpp>
 #include <pcl/segmentation/impl/extract_clusters.hpp>
@@ -44,7 +42,6 @@ struct EIGEN_ALIGN16 PointSNCF {
    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-// L'enregistrement doit mapper tes noms de champs PCD aux variables de la struct
 POINT_CLOUD_REGISTER_POINT_STRUCT(PointSNCF,
     (float, x, x)
     (float, y, y)
@@ -66,33 +63,15 @@ int main(int argc, char** argv) {
     pcl::PointCloud<PointSNCF>::Ptr cloud(new pcl::PointCloud<PointSNCF>);
     pcl::io::loadPCDFile<PointSNCF>(argv[1], *cloud);
 
-    std::cout << "Fichier charge. Lancement de l'algorithme..." << std::endl;
+    std::cout << "Fichier charge. Nombre de points: " << cloud->size() << std::endl;
 
     // --- CHRONOMETRAGE DE L'ALGORITHME ---
     auto start = std::chrono::high_resolution_clock::now();
 
-
-    // 1. DOWNSAMPLING
-    pcl::PointCloud<PointSNCF>::Ptr cloud_down(new pcl::PointCloud<PointSNCF>);
-    pcl::VoxelGrid<PointSNCF> vg;
-    vg.setInputCloud(cloud);
-    vg.setLeafSize(0.12f, 0.12f, 0.12f);
-    vg.filter(*cloud_down);
-
-    // 2. FILTRAGE STATISTIQUE OUTLIER
-    pcl::PointCloud<PointSNCF>::Ptr cloud_filtered(new pcl::PointCloud<PointSNCF>);
-    pcl::StatisticalOutlierRemoval<PointSNCF> sor;
-    sor.setInputCloud(cloud_down);
-    sor.setMeanK(50);
-    sor.setStddevMulThresh(1.0);
-    sor.filter(*cloud_filtered);
-
-    std::cout << "Nombre de points après filtrage statistique: " << cloud_filtered->size() << std::endl;
-
-    // 3. FILTRAGE PAR NUMBERS OF RETURNS
+    // 1. FILTRAGE PAR NUMBERS OF RETURNS
     pcl::PointCloud<PointSNCF>::Ptr cloud_numberOfReturns(new pcl::PointCloud<PointSNCF>);
-    for (const auto& point : cloud_filtered->points) {
-        if ((point.NumberOfReturns) < 1.0f) {
+    for (const auto& point : cloud->points) {
+        if ((point.NumberOfReturns) <= 1.0f) {
             cloud_numberOfReturns->push_back(point);
         }
     }
@@ -101,14 +80,23 @@ int main(int argc, char** argv) {
 
     std::cout << "Nombre de points après filtrage par NumberOfReturns: " << cloud_numberOfReturns->size() << std::endl;
 
-    // 4. CALCUL DES NORMALES
+    // 2. DOWNSAMPLING
+    pcl::VoxelGrid<PointSNCF> vg;
+    vg.setInputCloud(cloud_numberOfReturns);
+    vg.setLeafSize(0.12f, 0.12f, 0.12f);
+    vg.filter(*cloud_numberOfReturns);
+
+    std::cout << "Nombre de points après Downsampling: " << cloud_numberOfReturns->size() << std::endl;
+
+    
+    // 3. CALCUL DES NORMALES
     pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
     pcl::NormalEstimation<PointSNCF, pcl::Normal> ne;
     ne.setInputCloud(cloud_numberOfReturns);
     pcl::search::KdTree<PointSNCF>::Ptr tree(new pcl::search::KdTree<PointSNCF>());
     ne.setSearchMethod(tree);
-    //ne.setKSearch(20);
-    ne.setRadiusSearch(0.50); // Ajustez ce paramètre en fonction de la densité de votre nuage de points
+    //ne.setKSearch(15);
+    ne.setRadiusSearch(0.5);
     ne.compute(*normals);
 
 
@@ -149,13 +137,11 @@ int main(int argc, char** argv) {
         seg.setOptimizeCoefficients(true);
         seg.setModelType(pcl::SACMODEL_LINE);
         seg.setMethodType(pcl::SAC_RANSAC);
-        seg.setDistanceThreshold(0.5); // Seuil de 10cm autour de l'axe
+        seg.setDistanceThreshold(0.5); // Seuil de 50cm autour de l'axe
         seg.setMaxIterations(1000);
         seg.setInputCloud(cluster_cloud);
         seg.segment(*inliers, *coefficients);
-
-        // Si on n'a pas assez de points alignés, on ignore le cluster (c'est sûrement juste un buisson)
-        if (inliers->indices.size() < 50) continue; 
+ 
 
         // 3. EXTRACTION : On crée un nuage qui ne contient QUE les points du poteau (sans feuilles)
         pcl::PointCloud<PointSNCF>::Ptr poteau_propre(new pcl::PointCloud<PointSNCF>);

@@ -58,23 +58,17 @@ An approach that was not initially considered is **Normal Estimation**. By calcu
 A core challenge of this project was the **Empirical Optimization** of the algorithm. All parameters were determined through iterative testing to find the optimal balance between noise reduction and feature preservation.
 
 ### Current Work
-The poles were detected succesfully on two point clouds. The process is shown on the following section.
+A code optimizaton has allowed the program to gain over 20s during execution. This has been possible by performing a NumberOfReturns filtering followed by a Voxel Downsamling in order to reduce the amount of points from 9 456 254 to 1 379 745. 
 
 ### 🛠️ The Processing Pipeline
 
-#### 1. Voxel Downsampling
-Reduces the point cloud density while keeping relevant informations.
-* **Empirical Choice:** `leafSize=0.12`.
-
-#### 2. Statistical Outlier Removal (SOR)
-Eliminates sensor noise ("laser dust") to prevent isolated noise points from acting as "bridges" between distinct objects.
-* **Empirical Choice:** `meanK=50`, `StddevMulThresh=1.0`.
-
-
-
-#### 3. NumberOfReturns Filtering 
+#### 1. NumberOfReturns Filtering 
 The NumbersOfReturns field of the point cloud has shown that the blue values, which include poles, catenaries and rails can be used to segment the point cloud. Their values are close to 0. 
 * **Empirical Threshold:** `1.0` .
+
+#### 2. Voxel Downsampling
+Reduces the point cloud density while keeping relevant informations.
+* **Empirical Choice:** `leafSize=0.12`.
 
 #### 4. Normal Filtering
 The normal is a unit vector $(n_x, n_y, n_z)$ perpendicular to the object surface at a given point. 

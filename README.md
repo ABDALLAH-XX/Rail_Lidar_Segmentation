@@ -16,10 +16,10 @@ This project specifically explores a **Rule-Based / Heuristic approach**, delibe
 - **Processor:** AMD® Athlon 300u with Radeon Vega Mobile Gfx × 4 
 - **Graphics:** AMD® Radeon Vega 3 Graphics
 
-## 📊 Dataset Source
-The data used in this project is sourced from the French Open Data platform:
-* **Dataset Name:** [Nuage de points 3D des infrastructures ferroviaires](https://www.data.gouv.fr/datasets/nuage-de-points-3d-des-infrastructures-ferroviaires)
-* **Source:** Data.gouv.fr / SNCF Réseau
+## 📊 Datasets Source
+The data used in this project are sourced from the French Open Data platform and Hungarian State Railways :
+* **Dataset 1:** [Nuage de points 3D des infrastructures ferroviaires](https://www.data.gouv.fr/datasets/nuage-de-points-3d-des-infrastructures-ferroviaires)
+* **Dataset 2:** [Hungarian MLS point clouds of railroad environment and annotated ground truth data](https://data.mendeley.com/datasets/ccxpzhx9dj/1)
 * **Format:** The raw dataset provides download links to compressed **.laz** tiles.
 
 ---
@@ -29,6 +29,7 @@ The development of this pipeline followed a two-step engineering approach:
 
 1.  **Phase 1: Prototyping (Python & Open3D):** Initial R&D was conducted using **Open3D** to validate geometric heuristics.
 2.  **Phase 2: Production-Ready (C++ & PCL):** To achieve industrial performance and handle large-scale railway tiles, the core engine was migrated to **C++ 17** using the **Point Cloud Library (PCL)**.
+3.  **Phase 3: Poles Detection:** The goal is to detect poles on every point cloud from the SNCF dataset.
 
 ---
 
@@ -69,44 +70,88 @@ The NumbersOfReturns field of the point cloud has shown that the blue values, wh
 
 #### 2. Voxel Downsampling
 Reduces the point cloud density while keeping relevant informations.
-* **Empirical Choice:** `leafSize=0.12`.
+* **Empirical Choice:** `leafSize=0.08`.
 
 #### 4. Normal Filtering
 The normal is a unit vector $(n_x, n_y, n_z)$ perpendicular to the object surface at a given point. 
 * The **$n_z$** value indicates horizontal (~0) or vertical (~1) orientation. 
-* To isolate **poles**, we filter and keep points where the **$n_z$** value is **under 0.10**.
+* To isolate **poles**, we filter and keep points where the **$n_z$** value is **under 0.20**.
 
 #### 4. Spatial Clustering (Euclidean)
 Groups the remaining points into individual entities.
-* **Empirical Tuning:** `ClusterTolerance=0.2m`, `MinSize=250`.
+* **Empirical Tuning:** `ClusterTolerance=0.3m`, `MinSize=50`.
 
 #### 5. Relative Height Analysis
 RANSAC algorithm is used to detect the poles.
-* **Empirical Choice:** `ModelType=SACMODEL_LINE`, `DistanceThreshold=0.5m`.
+* **Empirical Choice:** `ModelType=SACMODEL_LINE`, `DistanceThreshold=0.6m`.
 The poles detection is based on several criterias:  
 
-* The height must be over **5.0m** and under **15.5m**.
-* The verticality computed must be over **0.99**.
-* The y dimension our the pole must be under **0.85m**.
+* The height must be over **4.0m**.
+* The verticality computed must be over **0.8**.
+* The x & y dimension of the pole must be under **1.5m**.
+* The Radial Deviation must be under **0.26ptm**.
+* The Pole density must be over **80pts/m**.
+
 
 
 #### 6. Results & Benchmarks
 
-The algorithm was tested on **six LAZ point clouds** (over. 1GB / over 8M points each) to establish a baseline before parallelization.
+The algorithm was evaluated on two distinct datasets: **SNCF (France)** and **Hungarian State Railways (MÁV)**. Tests were conducted on LAZ/PCD files (averaging 1.4 GB / 8M+ points each) using sequential processing as a baseline before OpenMP parallelization.
 
-##### Performance Data (Sequential Baseline)
+##### A. SNCF Dataset (French Network)
+*Focus: Standard catenary poles and poles with integrated ladders/platforms.*
 
-| Point Cloud ID | Poles Detected | Accuracy | Processing Time | Status |
+| Point Cloud ID | Poles Detected | Accuracy | Processing Time | Observations |
 | :--- | :---: | :---: | :---: | :--- |
-| `railway_000033` | **4 / 4** | 100% | 24.60s | ✅ Success |
-| `railway_000034` | **2 / 3** | 66.7% | 24.97s | ⚠️ Missed 1 |
-| `railway_000039` | **2 / 3** | 66.7% | 25.13s | ⚠️ Missed 1 |
-| `railway_000041` | **4 / 4** | 100% | 24.50s | ✅ Success |
-| `railway_000043` | **3 / 3** | 100% | 24.15s | ✅ Success |
-| `railway_000046` | **2 / 3** | 66.7% | 21.24s | ⚠️ Missed 1 |
+| `railway_000033` | **4 / 4** | 100% | 33.69s | ✅ Success |
+| `railway_000034` | **3 / 3** | 100% | 34.82s | ⚠️ 1 FP (Density: 70 pts/m) |
+| `railway_000035` | **3 / 3** | 100% | 35.41s | ✅ Success |
+| `railway_000036` | **3 / 3** | 100% | 31.60s | ⚠️ Pole #3 Incomplete |
+| `railway_000037` | **6 / 6** | 100% | 35.30s | ✅ Success |
+| `railway_000038` | **3 / 3** | 100% | 37.64s | ✅ Success |
+| `railway_000040` | **5 / 5** | 100% | 40.70s | ❌ 1 FN (Density: 75 pts/m) |
+| `railway_000041` | **4 / 4** | 100% | 33.41s | ⚠️ 1 FP (Density: 52 pts/m) |
+| `railway_000042` | **3 / 3** | 100% | 29.89s | ⚠️ Pole #3 Incomplete |
+| `railway_000043` | **3 / 4** | 75% | 31.45s | ❌ 1 FN (Complex structure) |
+| `railway_000048` | **3 / 3** | 100% | 26.29s | ✅ Success |
 
-**Average Processing Time:** ~24.1s  
-**Overall Recall Rate:** 17 / 20 poles (85%)
+**SNCF Metrics:**
+*   **Average Processing Time:** ~32.8s
+*   **Overall Recall Rate:** ~96% (Standard poles)
+
+---
+
+##### B. Hungarian State Railways Dataset (MÁV)
+*Focus: Thin poles, lamp posts, and "A-frame" structures with wide bases.*
+
+| Point Cloud ID | Poles Detected | Accuracy | Processing Time | Observations |
+| :--- | :---: | :---: | :---: | :--- |
+| `hungarian_01` | **2 / 2** | 100% | 34.14s | ✅ Success |
+| `hungarian_02` | **3 / 4** | 75% | 49.94s | ❌ FN: Pole with wide-reaching bases |
+| `hungarian_03` | **2 / 5** | 40% | 58.63s | ❌ FN: Thinner and smaller pole profiles |
+| `hungarian_04` | **4 / 4** | 100% | 49.55s | ✅ Success (2 poles with wide bases detected) |
+| `hungarian_05` | **2 / 5** | 40% | 47.30s | ❌ FN: 3 poles with wide-reaching bases missed |
+| `hungarian_06` | **3 / 2** | 150% | 34.78s | ⚠️ FP: Giant pole detected outside the platforms |
+| `hungarian_07` | **3 / 3** | 100% | 39.93s | ✅ Success (Wide-base pole detected) |
+| `hungarian_08` | **5 / 8** | 62.5% | 47.32s | ⚠️ Mixed: 3 FN, 1 lamp post FP, 2 unidentified poles |
+| `hungarian_09` | **1 / 2** | 50% | 42.63s | ❌ 1 FN |
+| `hungarian_10` | **7 / 6** | 116% | 43.34s | ⚠️ 1 FP: Lamp post identified as a pole |
+| `hungarian_11` | **7 / 4** | 175% | 36.53s | ⚠️ 3 FP: Lamp posts identified as poles |
+
+**Hungarian Metrics:**
+*   **Average Processing Time:** ~44.5s
+*   **Major Challenge:** Higher False Positive (FP) rate due to lamp posts and lower Recall on thin structures.
+
+---
+
+##### 🔍 Technical Analysis & Failure Modes
+
+1.  **False Positives (FP):** Primarily caused by **lamp posts** and high-density vertical objects. Their linear geometry is similar enough to catenary poles to pass the `SACMODEL_LINE` filter.
+2.  **False Negatives (FN):** 
+    *   **Thin Structures:** With a `VoxelGrid` of 0.1m, very thin poles lose too much point density to be clustered correctly.
+    *   **Wide-Base Poles:** "A" or "H" shaped structures increase the **Radial Deviation** beyond the 0.45m threshold, causing the algorithm to reject them as "noise".
+3.  **Incomplete Captures:** Occurs when `EuclideanClusterExtraction` splits a pole due to gaps in the point cloud (occlusions or low density at the top).
+
 
 ---
 
@@ -118,10 +163,18 @@ The algorithm was tested on **six LAZ point clouds** (over. 1GB / over 8M points
 ---
 
 ## 🛠️ Tech Stack
-* **Languages:** C++ 17 (Core Engine) / Python (R&D Prototyping)
-* **Libraries:** [PCL (Point Cloud Library)](https://pointclouds.org/), [Open3D](http://www.open3d.org/)
-* **Analysis Tools:** CloudCompare (Format conversion .laz to .pcd & Global Shift handling)
-* **Build System:** CMake
+
+*   **Languages:** C++ 17 (Core Engine) / Python (R&D Prototyping)
+*   **Libraries:** 
+    *   [PCL (Point Cloud Library)](https://pointclouds.org/): Core processing, RANSAC line segmentation, and Euclidean cluster extraction.
+    *   [PDAL (Point Data Abstraction Library)](https://pdal.io/): Used for advanced point cloud translation, filtering, and efficient format conversion (e.g., `.laz` to `.pcd`).
+    *   [Open3D](http://www.open3d.org/): Visualization and geometric analysis.
+*   **Data Preparation & Analysis:** 
+    *   **CloudCompare:** Crucial for dataset preprocessing, including:
+        *   **Spatial Segmentation:** Subdividing massive 1.4GB+ point clouds into smaller, manageable tiles to optimize memory usage and processing speed.
+        *   **Global Shift Management:** Handling large coordinate offsets to maintain floating-point precision during geometric calculations.
+        *   **Visual Validation:** Comparing ground truth data with algorithmic extraction results.
+*   **Build System:** CMake
 
 ## 🌍 Impact & Use Cases
 * **Railway Maintenance:** Automated clearance checks and vegetation risk management.

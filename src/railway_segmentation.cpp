@@ -159,7 +159,7 @@ int main(int argc, char** argv) {
     // 2. DOWNSAMPLING
     pcl::VoxelGrid<PointSNCF> vg;
     vg.setInputCloud(cloud);
-    vg.setLeafSize(0.12f, 0.12f, 0.12f);
+    vg.setLeafSize(0.08f, 0.08f, 0.08f);
     vg.filter(*cloud);
 
     std::cout << "Total points after downsampling: " << cloud->size() << std::endl;
@@ -180,16 +180,17 @@ int main(int argc, char** argv) {
     // 4. NORMAL FILTERING
     pcl::PointCloud<PointSNCF>::Ptr poles_cloud(new pcl::PointCloud<PointSNCF>);
     for (size_t i = 0; i < cloud->size(); ++i) {
-        if (std::abs((*normals)[i].normal_z) < 0.10f) { 
+        if (std::abs((*normals)[i].normal_z) < 0.2f) { 
             poles_cloud->push_back((*cloud)[i]);
         }
     }
 
+
     // 5. CLUSTERING
     std::vector<pcl::PointIndices> clusters;
     pcl::EuclideanClusterExtraction<PointSNCF> ec;
-    ec.setClusterTolerance(0.2); 
-    ec.setMinClusterSize(250);
+    ec.setClusterTolerance(0.4); 
+    ec.setMinClusterSize(50);
     ec.setInputCloud(poles_cloud);
     ec.extract(clusters);
 
@@ -206,6 +207,7 @@ int main(int argc, char** argv) {
         pcl::PointCloud<PointSNCF>::Ptr cluster_cloud(new pcl::PointCloud<PointSNCF>);
         pcl::copyPointCloud(*poles_cloud, indices, *cluster_cloud);
 
+
         // 2. Appy RANSAC to extract vertical information
         pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
         pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
@@ -217,7 +219,6 @@ int main(int argc, char** argv) {
         seg.setMaxIterations(1000);
         seg.setInputCloud(cluster_cloud);
         seg.segment(*inliers, *coefficients);
- 
 
         // 3. POLES EXTRACTION
         pcl::PointCloud<PointSNCF>::Ptr pole_detected(new pcl::PointCloud<PointSNCF>);
@@ -231,14 +232,46 @@ int main(int argc, char** argv) {
         Eigen::Vector4f min_p, max_p;
         pcl::getMinMax3D(*pole_detected, min_p, max_p);
         
+        
         float dim_x = max_p[0] - min_p[0];
         float dim_y = max_p[1] - min_p[1];
         float h = max_p[2] - min_p[2];
+        float density = pole_detected->size() / h;
 
+        // 5. Compute the poles Radial deviation
+
+        float sum_r = 0, sum_r_sq = 0;
+        int n = pole_detected->size();
+
+        // Computes mean center of the cluster
+        float center_x = 0, center_y = 0;
+        for (const auto& pt : pole_detected->points) {
+            center_x += pt.x;
+            center_y += pt.y;
+        }
+        center_x /= n;
+        center_y /= n;
+
+        // Computes radials distances and standard deviation
+        std::vector<float> distances;
+        for (const auto& pt : pole_detected->points) {
+            float r = std::sqrt(std::pow(pt.x - center_x, 2) + std::pow(pt.y - center_y, 2));
+            distances.push_back(r);
+            sum_r = r;
+        }
+        float mean_r = sum_r / n;
+
+        for (float r : distances) {
+            sum_r_sq += std::pow(r - mean_r, 2);
+        }
+        float sigma_radial = std::sqrt(sum_r_sq / n);
+
+        
         // Check the verticaly of RANSAC Z Axis (should be close to 1)
         float verticality = std::abs(coefficients->values[5]);
 
-        if (h > 5.5f && h < 15.5f && verticality > 0.99f && dim_y < 0.85f) {
+        //verticality > 0.8f && dim_x <1.5f && dim_y < 1.5f && sigma_radial < 0.26f && density > 80.0f
+        if (h > 4.50f && verticality > 0.8f && dim_x <1.5f && dim_y < 1.5f && sigma_radial < 0.26f && density > 80.0f) {
             count++;
             
             // Accurate coordinates
@@ -259,7 +292,8 @@ int main(int argc, char** argv) {
             viewer->addText3D(ss.str(), text_pos, 0.25, 1.0, 1.0, 1.0, "info_" + std::to_string(count));
             
             std::cout << "--- Pole " << count << " detected---" << std::endl;
-            std::cout << "Dimensions: " << dim_x << "m x " << dim_y << "m x " << h << "m" << std::endl;
+            std::cout << "Dimensions: " << dim_x << "m x " << dim_y << "m x " << h << "m x" << " Total points: " << pole_detected->size() << " x Density: "
+               << density << " x sigma_radial " << sigma_radial << std::endl;
         }
     }
 
@@ -270,7 +304,10 @@ int main(int argc, char** argv) {
     std::cout << "Running time : " << duration.count() / 1000.0 << " s" << std::endl;
 
     viewer->addPointCloud<PointSNCF>(cloud, "background");
-    viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_OPACITY, 0.3, "background");
+    viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_OPACITY, 0.5, "background");
+
+    //viewer->addPointCloudNormals<PointSNCF, pcl::Normal>(cloud, normals, 10, 0.2, "normals");
+
 
     viewer->spin();
     return 0;

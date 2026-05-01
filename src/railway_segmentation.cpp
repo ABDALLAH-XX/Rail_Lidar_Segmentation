@@ -7,6 +7,7 @@
 #include <pdal/PointView.hpp>
 #include <pdal/io/LasReader.hpp>
 #include <pdal/io/LasHeader.hpp>
+#include <omp.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/common/common.h>
 #include <pcl/point_types.h>
@@ -15,11 +16,9 @@
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/features/normal_3d.h>
-//#include <pcl/segmentation/sac_segmentation.h>
-//#include <pcl/segmentation/extract_clusters.h>
+#include <pcl/features/normal_3d_omp.h>
 #include <pcl/segmentation/impl/sac_segmentation.hpp>
 #include <pcl/segmentation/impl/extract_clusters.hpp>
-//#include <pcl/common/impl/angles.hpp>
 #include <pcl/visualization/pcl_visualizer.h>
 
 // --- Custom datapoint to visualize every fields of the .laz file ---
@@ -167,11 +166,11 @@ int main(int argc, char** argv) {
 
     // 3. NORMAL ESTIMATION
     pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-    pcl::NormalEstimation<PointSNCF, pcl::Normal> ne;
+    pcl::NormalEstimationOMP<PointSNCF, pcl::Normal> ne;
     ne.setInputCloud(cloud);
     pcl::search::KdTree<PointSNCF>::Ptr tree(new pcl::search::KdTree<PointSNCF>());
     ne.setSearchMethod(tree);
-    //ne.setKSearch(20);
+    ne.setNumberOfThreads(omp_get_max_threads()); // Use every cores
     ne.setRadiusSearch(0.5);
     ne.compute(*normals);
 
@@ -179,9 +178,21 @@ int main(int argc, char** argv) {
 
     // 4. NORMAL FILTERING
     pcl::PointCloud<PointSNCF>::Ptr poles_cloud(new pcl::PointCloud<PointSNCF>);
-    for (size_t i = 0; i < cloud->size(); ++i) {
-        if (std::abs((*normals)[i].normal_z) < 0.2f) { 
-            poles_cloud->push_back((*cloud)[i]);
+    // pre allocation to avoid reallocations on the nested loop
+    poles_cloud->points.reserve(cloud->size());
+
+    #pragma omp parallel
+    {
+        pcl::PointCloud<PointSNCF> local_cloud;
+        #pragma omp for nowait 
+        for (int i = 0; i < (int)cloud->size(); ++i) {
+            if (std::abs((*normals)[i].normal_z) < 0.2f) { 
+                poles_cloud->push_back((*cloud)[i]);
+            }
+        }
+        #pragma omp critical
+        {
+            *poles_cloud += local_cloud;
         }
     }
 
@@ -200,12 +211,18 @@ int main(int argc, char** argv) {
     pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("SNCF Poles Detection"));
     viewer->setBackgroundColor(0, 0, 0);
 
+    std::vector<pcl::PointCloud<PointSNCF>::Ptr> detected_poles_list;
+    std::vector<std::string> poles_info;
+    std::vector<Eigen::Vector3f> text_positions;
+
+
+
     // For loop to detect every from the cluster
-    int count = 0;
-    for (const auto& indices : clusters) {
+    #pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i < (int)clusters.size(); ++i) {
         // 1. Isolate the raw cloud
         pcl::PointCloud<PointSNCF>::Ptr cluster_cloud(new pcl::PointCloud<PointSNCF>);
-        pcl::copyPointCloud(*poles_cloud, indices, *cluster_cloud);
+        pcl::copyPointCloud(*poles_cloud, clusters[i], *cluster_cloud);
 
 
         // 2. Appy RANSAC to extract vertical information
@@ -272,29 +289,37 @@ int main(int argc, char** argv) {
 
         //verticality > 0.8f && dim_x <1.5f && dim_y < 1.5f && sigma_radial < 0.26f && density > 80.0f
         if (h > 4.50f && verticality > 0.8f && dim_x <1.5f && dim_y < 1.5f && sigma_radial < 0.26f && density > 80.0f) {
-            count++;
+            #pragma omp critical
+            {
+                
+                // Store the result for the display (non thread safe viewer)
+                
+                // Accurate coordinates
+                float centerX = (min_p[0] + max_p[0]) / 2.0f;
+                float centerY = (min_p[1] + max_p[1]) / 2.0f;
+
+                for (auto& p : pole_detected->points) { p.r=255; p.g=255; p.b=0; }
+                detected_poles_list.push_back(pole_detected);
+
+                std::stringstream ss;
+                ss << "POLE " << detected_poles_list.size()  << "\n"
+                << "Dim: " << std::fixed << std::setprecision(2) << dim_x << "x" << dim_y << "x" << h << "m";
+                poles_info.push_back(ss.str());
+                text_positions.push_back(Eigen::Vector3f(centerX, centerY, max_p[2]+0.8f));
+
+                std::cout << "--- Pole " << detected_poles_list.size() << " detected---" << std::endl;
+                std::cout << "Dimensions: " << dim_x << "m x " << dim_y << "m x " << h << "m x" << " Total points: " << pole_detected->size() << " x Density: "
+                << density << " x sigma_radial " << sigma_radial << std::endl;
+            }
             
-            // Accurate coordinates
-            float centerX = (min_p[0] + max_p[0]) / 2.0f;
-            float centerY = (min_p[1] + max_p[1]) / 2.0f;
-
-            // Visualization 
-            for(auto& p : pole_detected->points) { p.r=255; p.g=255; p.b=0; }
-            viewer->addPointCloud<PointSNCF>(pole_detected, "pole_" + std::to_string(count));
-
-
-            // Display informations
-            std::stringstream ss;
-            ss << "POLE " << count << " (RANSAC)\n"
-            << "Dim: " << std::fixed << std::setprecision(2) << dim_x << "x" << dim_y << "x" << h << "m";
-
-            pcl::PointXYZ text_pos(centerX, centerY, max_p[2] + 0.8f);
-            viewer->addText3D(ss.str(), text_pos, 0.25, 1.0, 1.0, 1.0, "info_" + std::to_string(count));
-            
-            std::cout << "--- Pole " << count << " detected---" << std::endl;
-            std::cout << "Dimensions: " << dim_x << "m x " << dim_y << "m x " << h << "m x" << " Total points: " << pole_detected->size() << " x Density: "
-               << density << " x sigma_radial " << sigma_radial << std::endl;
         }
+    }
+
+    // 7. DISPLAY (Must be Sequential)
+    for (size_t i = 0; i < detected_poles_list.size(); ++i) {
+        viewer->addPointCloud<PointSNCF>(detected_poles_list[i], "pole_" + std::to_string(i));
+        pcl::PointXYZ pos(text_positions[i][0], text_positions[i][1], text_positions[i][2]);
+        viewer->addText3D(poles_info[i], pos, 0.25, 1.0, 1.0, 1.0, "info_" + std::to_string(i));
     }
 
     // --- END  ---

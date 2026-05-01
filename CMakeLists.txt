@@ -28,6 +28,9 @@ find_package(PDAL REQUIRED)
 # B. EIGEN
 find_package(Eigen3 REQUIRED)
 
+find_package(OpenMP REQUIRED)
+
+
 
 
 set(PCL_DIR "/usr/lib/x86_64-linux-gnu/cmake/pcl")
@@ -41,6 +44,7 @@ add_definitions(${PCL_DEFINITIONS})
 include_directories(
     ${PCL_INCLUDE_DIRS}
     ${PDAL_INCLUDE_DIRS}
+    OpenMP::OpenMP_CXX
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
@@ -57,3 +61,5 @@ add_executable (test_segmentation src/test.cpp)
 
 target_link_libraries (railway_segmentation ${PCL_LIBRARIES} ${PDAL_LIBRARIES} Eigen3::Eigen)
 target_link_libraries (test_segmentation ${PCL_LIBRARIES} ${PDAL_LIBRARIES} Eigen3::Eigen)
+# Version corrigée
+target_link_libraries(railway_segmentation ${PCL_LIBRARIES} OpenMP::OpenMP_CXX)

@@ -31,6 +31,7 @@ The development of this pipeline followed a two-step engineering approach:
 2.  **Phase 2: Production-Ready (C++ & PCL):** To achieve industrial performance and handle large-scale railway tiles, the core engine was migrated to **C++ 17** using the **Point Cloud Library (PCL)**.
 3.  **Phase 3: Poles Detection:** The goal is to detect poles on every point cloud from the SNCF dataset.
 
+
 ---
 
 ## 🏗️ Technical Achievements [Work in Progress 🚧]
@@ -60,7 +61,7 @@ An approach that was not initially considered is **Normal Estimation**. By calcu
 A core challenge of this project was the **Empirical Optimization** of the algorithm. All parameters were determined through iterative testing to find the optimal balance between noise reduction and feature preservation.
 
 ## 🚧 Current Work
-Since the beginning of this project the program went from 47s to 15s during running time. This has been possible by performing a NumberOfReturns filtering followed by a Voxel Downsamling in order to reduce the amount of points from 9 456 254 to 1 379 745. This approach is done on a .pcd which is heavy (over 1Gb). A .laz to PCL conversion using PDAL has been used to allows the user to runs the program on the raw file format (.laz).
+Since the beginning of this project the program went from 47s to 15s during running time. This has been possible by performing a NumberOfReturns filtering followed by a Voxel Downsamling in order to reduce the amount of points from 9 456 254 to 1 379 745. However this approach is done on a .pcd cloud which is heavy (over 1Gb). In order to test the full dataset, a .laz to PCL conversion using PDAL has been used to allows the user to runs the program on the raw file format (.laz). This will increase the running time, but it is possible to store several dataset due to the light format of .laz file. Moreover it is quicker to process the raw data rather than convert it to a .pcd format and than executing the algorithm. In order to reduce running time, OpenMP has been integrated in the code. 
 
 ### 🛠️ The Processing Pipeline
 
@@ -145,6 +146,7 @@ The algorithm was evaluated on two distinct datasets: **SNCF (France)** and **Hu
 
 ---
 
+
 ##### 🔍 Cross-Dataset Analysis
 
 1.  **Impact of Base Geometry:** The Hungarian "A-frame" poles often exceed the **Radial Deviation** limit (0.45m), leading to False Negatives.
@@ -168,6 +170,40 @@ The algorithm was evaluated on two distinct datasets: **SNCF (France)** and **Hu
 * **Consistency:** The processing speed is highly stable around **24-25 seconds**. 
 * **Bottlenecks:** File `000046` was significantly faster (21.24s), likely due to lower point density or fewer vertical candidates during the Euclidean Clustering stage.
 * **Accuracy:** Missed poles in files 34, 39, and 46 are likely due to signal noise or proximity to catenary structures, requiring further refinement of the `ClusterTolerance`.
+
+---
+
+## 🚀 Performance Analysis & Benchmarks
+
+The processing pipeline has been rigorously tested on **Ubuntu 22.04 LTS** using the **hungarian_3** dataset (~60Mb `.laz` file). This specific file represents the "worst-case scenario" in terms of point density and computational complexity, making it our primary benchmark for system reliability.
+
+### 🛠 Test Configuration
+*   **OS:** Ubuntu 22.04 / VS Code (CMake Tools)
+*   **Parallelization:** OpenMP (leveraged for Voxel Filtering and Normal Estimation)
+*   **Hardware:** Lenovo Laptop (Tests conducted on both Battery and AC Power)
+
+### 📊 Benchmark Results (Dataset: hungarian_3)
+The following measurements demonstrate the critical impact of hardware power management and compiler optimizations on execution time:
+
+| Power Source | Build Mode | Voxel Size | Execution Time |
+| :--- | :--- | :---: | :---: |
+| 🔋 Battery | Debug | 0.08m | 58s |
+| 🔌 AC Power | Debug | 0.08m | 45s |
+| **🔌 AC Power** | **Release** | **0.08m** | **35s** |
+| 🔌 AC Power | Release | 0.06m | 51s |
+
+### 🔍 Key Observations
+
+#### 1. Hardware-Level Optimization (Power Management)
+Switching from battery to AC power resulted in a **23% performance gain** even in Debug mode. On battery, the CPU encounters strict power limits (throttling), which prevents the processor from reaching the high clock speeds required for efficient multi-threaded OpenMP operations.
+
+#### 2. Release Mode & Vectorization
+Switching to **Release mode (-O3)** while connected to AC power brought the execution time down to its record low of **35 seconds**. This improvement is due to the compiler's ability to utilize **SIMD vectorization**, which is crucial for the heavy geometric calculations involved in RANSAC and Normal Estimation.
+
+#### 3. Resolution Sensitivity & Memory Safety
+*   **The "Sweet Spot":** A voxel size of **0.08m** is the optimal balance. It maintains enough structural detail to detect catenary poles while ensuring the processing finishes in under 40 seconds.
+*   **Computational Growth:** Reducing the voxel size to **0.06m** increased the runtime by nearly **50%** (to 51s), illustrating the cubic growth of data points in 3D space.
+*   **Overflow Risk:** Setting the resolution too fine (e.g., `< 0.05m`) on large-scale datasets triggers an `Integer indices would overflow` error in PCL. This bypasses the downsampling stage, causing processing times to spike to over **170s** as the pipeline struggles with the raw data volume.
 
 ---
 

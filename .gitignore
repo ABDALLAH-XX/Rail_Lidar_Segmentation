@@ -8,3 +8,7 @@ data/*pcd
 .vscode
 
 build/*
+
+*pdf
+results/*txt
+

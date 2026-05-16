@@ -1,7 +1,7 @@
 # 🚂 LiDAR-Based Railway Infrastructure Segmentation (Non-AI Approach)
 
 ## Current Results
-![Current Segmentation Result](results/railway_000033_18_04_26.png)
+![Current Segmentation Result](results/railway_000033_17_05_26.png)
 
 ## 🎯 Project Overview
 The objective of this project is to **segment and isolate critical railway infrastructure components** (tracks, catenaries, poles) from raw 3D LiDAR point clouds. 
@@ -61,7 +61,7 @@ An approach that was not initially considered is **Normal Estimation**. By calcu
 A core challenge of this project was the **Empirical Optimization** of the algorithm. All parameters were determined through iterative testing to find the optimal balance between noise reduction and feature preservation.
 
 ## 🚧 Current Work
-Since the beginning of this project the program went from 47s to 15s during running time. This has been possible by performing a NumberOfReturns filtering followed by a Voxel Downsamling in order to reduce the amount of points from 9 456 254 to 1 379 745. However this approach is done on a .pcd cloud which is heavy (over 1Gb). In order to test the full dataset, a .laz to PCL conversion using PDAL has been used to allows the user to runs the program on the raw file format (.laz). This will increase the running time, but it is possible to store several dataset due to the light format of .laz file. Moreover it is quicker to process the raw data rather than convert it to a .pcd format and than executing the algorithm. In order to reduce running time, OpenMP has been integrated in the code. 
+Poles are detected. A global search is performed around the raw cloud with poles coordinates to detect cantilevers.
 
 ### 🛠️ The Processing Pipeline
 

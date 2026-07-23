@@ -159,7 +159,8 @@ int main(int argc, char** argv) {
     pcl::PointCloud<PointSNCF>::Ptr cloud(new pcl::PointCloud<PointSNCF>);
     pcl::VoxelGrid<PointSNCF> vg;
     vg.setInputCloud(cloud_raw);
-    vg.setLeafSize(0.08f, 0.08f, 0.08f);
+    float lf = 0.3f;
+    vg.setLeafSize(lf, lf, lf);
     vg.filter(*cloud);
 
     std::cout << "Total points after downsampling: " << cloud->size() << std::endl;

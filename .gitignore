@@ -4,6 +4,7 @@ src/point_cloud_exploration.py
 
 data/*laz
 data/*pcd
+data/*ply
 
 .vscode
 
@@ -11,4 +12,7 @@ build/*
 
 *pdf
 results/*txt
+
+web_data
+
 
